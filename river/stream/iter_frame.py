@@ -46,5 +46,5 @@ def iter_frame(
     kwargs["feature_names"] = X.columns
     if isinstance(y, nw.DataFrame):
         kwargs["target_names"] = y.columns
-    
+
     yield from stream.iter_array(X=X.to_numpy(), y=y if y is None else y.to_numpy(), **kwargs)

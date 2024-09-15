@@ -7,6 +7,7 @@ from river import base, stream
 if TYPE_CHECKING:
     import pandas as pd
 
+
 def iter_pandas(
     X: pd.DataFrame, y: pd.Series | pd.DataFrame | None = None, **kwargs
 ) -> base.typing.Stream:

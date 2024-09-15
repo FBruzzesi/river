@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import narwhals.stable.v1 as nw
+import narwhals.stable.v1 as nw  # type: ignore[import]
 import sklearn.utils
 
 from river import base, stream

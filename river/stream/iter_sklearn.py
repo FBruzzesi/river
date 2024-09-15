@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import pandas as pd
+import narwhals.stable.v1 as nw
 import sklearn.utils
 
 from river import base, stream
@@ -52,7 +52,7 @@ def iter_sklearn_dataset(dataset: sklearn.utils.Bunch, **kwargs) -> base.typing.
     except AttributeError:
         pass
 
-    if isinstance(kwargs["X"], pd.DataFrame):
+    if (pd:=nw.dependencies.get_pandas()) is not None and isinstance(kwargs["X"], pd.DataFrame):
         yield from stream.iter_pandas(**kwargs)
     else:
         yield from stream.iter_array(**kwargs)

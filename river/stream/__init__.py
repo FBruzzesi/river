@@ -10,6 +10,7 @@ from .cache import Cache
 from .iter_arff import iter_arff
 from .iter_array import iter_array
 from .iter_csv import iter_csv
+from .iter_frame import iter_frame
 from .iter_libsvm import iter_libsvm
 from .qa import simulate_qa
 from .shuffling import shuffle
@@ -21,6 +22,7 @@ __all__ = [
     "iter_arff",
     "iter_array",
     "iter_csv",
+    "iter_frame",
     "iter_libsvm",
     "simulate_qa",
     "shuffle",

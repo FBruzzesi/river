@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-import pandas as pd
+from typing import TYPE_CHECKING
 
 from river import base, stream
 
+if TYPE_CHECKING:
+    import pandas as pd
 
 def iter_pandas(
     X: pd.DataFrame, y: pd.Series | pd.DataFrame | None = None, **kwargs
@@ -40,9 +42,4 @@ def iter_pandas(
     {'x1': 4, 'x2': 'blue'} True
 
     """
-
-    kwargs["feature_names"] = X.columns
-    if isinstance(y, pd.DataFrame):
-        kwargs["target_names"] = y.columns
-
-    yield from stream.iter_array(X=X.to_numpy(), y=y if y is None else y.to_numpy(), **kwargs)
+    yield from stream.iter_frame(X, y, **kwargs)

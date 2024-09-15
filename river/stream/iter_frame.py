@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import narwhals.stable.v1 as nw
 
 from river import base, stream
 
-if TYPE_CHECKING:
-    import polars as pl
 
-
-def iter_polars(
-    X: pl.DataFrame, y: pl.Series | pl.DataFrame | None = None, **kwargs
+def iter_frame(
+    X: nw.IntoFrameT, y: nw.Series | nw.IntoFrameT | None = None, **kwargs
 ) -> base.typing.Stream:
-    """Iterates over the rows of a `polars.DataFrame`.
+    """Iterates over the rows of a `pandas.DataFrame`.
 
     Parameters
     ----------
@@ -25,23 +22,29 @@ def iter_polars(
     Examples
     --------
 
-    >>> import polars as pl
+    >>> import pandas as pd
     >>> from river import stream
 
-    >>> X = pl.DataFrame({
+    >>> X = pd.DataFrame({
     ...     'x1': [1, 2, 3, 4],
     ...     'x2': ['blue', 'yellow', 'yellow', 'blue'],
     ...     'y': [True, False, False, True]
     ... })
-    >>> y = X.get_column('y')
-    >>> X=X.drop("y")
+    >>> y = X.pop('y')
 
-    >>> for xi, yi in stream.iter_polars(X, y):
+    >>> for xi, yi in stream.iter_pandas(X, y):
     ...     print(xi, yi)
     {'x1': 1, 'x2': 'blue'} True
     {'x1': 2, 'x2': 'yellow'} False
     {'x1': 3, 'x2': 'yellow'} False
     {'x1': 4, 'x2': 'blue'} True
-
     """
-    yield from stream.iter_frame(X, y, **kwargs)
+
+    X = nw.from_native(X, eager_only=True, strict=True)
+    y = nw.from_native(y, eager_only=True, strict=False, allow_series=True)
+
+    kwargs["feature_names"] = X.columns
+    if isinstance(y, nw.DataFrame):
+        kwargs["target_names"] = y.columns
+    
+    yield from stream.iter_array(X=X.to_numpy(), y=y if y is None else y.to_numpy(), **kwargs)

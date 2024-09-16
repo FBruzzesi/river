@@ -7,12 +7,14 @@ import numpy as np
 
 try:
     import pandas as pd
+
     PANDAS_INSTALLED = True
 except ImportError:
     PANDAS_INSTALLED = False
 
 try:
     import polars as pl
+
     POLARS_INSTALLED = True
 except ImportError:
     POLARS_INSTALLED = False

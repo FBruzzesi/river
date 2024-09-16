@@ -52,7 +52,9 @@ def iter_polars(
     if not nw.depedencies.is_polars_dataframe(X):
         msg = f"Expected polars DataFrame, received {type(X)}"
         raise TypeError(msg)
-    if y is not None and not (nw.depedencies.is_polars_dataframe(y) or nw.depedencies.is_polars_series(y)):
+    if y is not None and not (
+        nw.depedencies.is_polars_dataframe(y) or nw.depedencies.is_polars_series(y)
+    ):
         msg = f"Expected polars DataFrame or Series, received {type(y)}"
         raise TypeError(msg)
 

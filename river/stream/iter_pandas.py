@@ -52,7 +52,9 @@ def iter_pandas(
     if not nw.depedencies.is_pandas_dataframe(X):
         msg = f"Expected pandas DataFrame, received {type(X)}"
         raise TypeError(msg)
-    if y is not None and not (nw.depedencies.is_pandas_dataframe(y) or nw.depedencies.is_pandas_series(y)):
+    if y is not None and not (
+        nw.depedencies.is_pandas_dataframe(y) or nw.depedencies.is_pandas_series(y)
+    ):
         msg = f"Expected pandas DataFrame or Series, received {type(y)}"
         raise TypeError(msg)
 

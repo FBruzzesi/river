@@ -52,6 +52,7 @@ rich = "^13.6.0"
 jupyter = "^1.0.0"
 mike = "^2.0.0"
 polars = "^0.20.8"
+pyarrow = ">=11.0.0"
 
 [tool.poetry.group.compat]
 optional = true

@@ -13,7 +13,7 @@ def iter_frame(
     Parameters
     ----------
     X
-        A dataframe of features.
+        A dataframe of features. Supports any eager dataframe that is currently supported in Narwhals.
     y
         A series or a dataframe with one column per target.
     kwargs
@@ -23,23 +23,38 @@ def iter_frame(
     --------
 
     >>> import pandas as pd
+    >>> import polars as pl
+    >>> import pyarrow as pa
     >>> from river import stream
 
-    >>> X = pd.DataFrame({
-    ...     'x1': [1, 2, 3, 4],
-    ...     'x2': ['blue', 'yellow', 'yellow', 'blue'],
-    ...     'y': [True, False, False, True]
-    ... })
-    >>> y = X.pop('y')
+    >>> X_data = {
+    ...     'x1': [1, 2, 3],
+    ...     'x2': ['blue', 'yellow', 'yellow'],
+    ... }
+    >>> y_data = [True, False, False]
 
-    >>> for xi, yi in stream.iter_pandas(X, y):
+    >>> X_pd, y_pd = pd.DataFrame(X_data), pd.Series(y_data)
+    >>> X_pl, y_pl = pl.DataFrame(X_data), pl.Series(y_data)
+    >>> X_pa, y_pa = pa.table(X_data), pa.chunked_array([y_data])
+    
+    >>> for xi, yi in stream.iter_frame(X_pd, y_pd):
     ...     print(xi, yi)
     {'x1': 1, 'x2': 'blue'} True
     {'x1': 2, 'x2': 'yellow'} False
     {'x1': 3, 'x2': 'yellow'} False
-    {'x1': 4, 'x2': 'blue'} True
-    """
 
+    >>> for xi, yi in stream.iter_frame(X_pl, y_pl):
+    ...     print(xi, yi)
+    {'x1': 1, 'x2': 'blue'} True
+    {'x1': 2, 'x2': 'yellow'} False
+    {'x1': 3, 'x2': 'yellow'} False
+    
+    >>> for xi, yi in stream.iter_frame(X_pa, y_pa):
+    ...     print(xi, yi)
+    {'x1': 1, 'x2': 'blue'} True
+    {'x1': 2, 'x2': 'yellow'} False
+    {'x1': 3, 'x2': 'yellow'} False
+    """
     X = nw.from_native(X, eager_only=True, strict=True)
     y = nw.from_native(y, eager_only=True, strict=False, allow_series=True)
 

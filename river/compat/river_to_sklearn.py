@@ -7,10 +7,16 @@ import numpy as np
 
 try:
     import pandas as pd
-
     PANDAS_INSTALLED = True
 except ImportError:
     PANDAS_INSTALLED = False
+
+try:
+    import polars as pl
+    POLARS_INSTALLED = True
+except ImportError:
+    POLARS_INSTALLED = False
+
 from sklearn import base as sklearn_base
 from sklearn import pipeline, preprocessing, utils
 
@@ -29,7 +35,10 @@ __all__ = [
 STREAM_METHODS: dict[type, typing.Callable] = {np.ndarray: stream.iter_array}
 
 if PANDAS_INSTALLED:
-    STREAM_METHODS[pd.DataFrame] = stream.iter_pandas
+    STREAM_METHODS[pd.DataFrame] = stream.iter_frame
+
+if POLARS_INSTALLED:
+    STREAM_METHODS[pl.DataFrame] = stream.iter_frame
 
 # Params passed to sklearn.utils.check_X_y and sklearn.utils.check_array
 SKLEARN_INPUT_X_PARAMS = {

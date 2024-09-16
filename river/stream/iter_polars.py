@@ -49,12 +49,11 @@ def iter_polars(
     msg = "Please use `stream.iter_frame`. `stream.iter_polars` is deprecated, and it will be removed in future versions."
     warn(msg, DeprecationWarning)
 
-    if (pl := nw.dependencies.get_polars()) is not None:
-        if not isinstance(X, pl.DataFrame):
-            msg = f"Expected polars DataFrame, received {type(X)}"
-            raise TypeError(msg)
-        if y is not None and not isinstance(y, (pl.DataFrame, pl.Series)):  # noqa: UP038
-            msg = f"Expected polars DataFrame or Series, received {type(X)}"
-            raise TypeError(msg)
+    if not nw.depedencies.is_polars_dataframe(X):
+        msg = f"Expected polars DataFrame, received {type(X)}"
+        raise TypeError(msg)
+    if y is not None and not (nw.depedencies.is_polars_dataframe(y) or nw.depedencies.is_polars_series(y)):
+        msg = f"Expected polars DataFrame or Series, received {type(y)}"
+        raise TypeError(msg)
 
     yield from stream.iter_frame(X, y, **kwargs)

@@ -31,6 +31,8 @@ __all__ = [
 ]
 
 try:
+    import polars  # noqa: F401
+
     from .iter_polars import iter_polars
 
     __all__ += ["iter_polars"]
@@ -38,6 +40,8 @@ except ImportError:
     pass
 
 try:
+    import pandas  # noqa: F401
+
     from .iter_pandas import iter_pandas
 
     __all__ += ["iter_pandas"]

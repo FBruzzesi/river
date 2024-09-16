@@ -52,7 +52,7 @@ def iter_sklearn_dataset(dataset: sklearn.utils.Bunch, **kwargs) -> base.typing.
     except AttributeError:
         pass
 
-    if (pd := nw.dependencies.get_pandas()) is not None and isinstance(kwargs["X"], pd.DataFrame):
+    if nw.dependencies.is_pandas_dataframe(kwargs["X"]):
         yield from stream.iter_pandas(**kwargs)
     else:
         yield from stream.iter_array(**kwargs)

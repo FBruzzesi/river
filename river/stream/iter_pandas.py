@@ -47,14 +47,14 @@ def iter_pandas(
 
     """
     msg = "Please use `stream.iter_frame`. `stream.iter_pandas` is deprecated, and it will be removed in future versions."
-    warn(msg. DeprecationWarning)
+    warn(msg, DeprecationWarning)
 
     if (pd := nw.dependencies.get_pandas()) is not None:
         if not isinstance(X, pd.DataFrame):
             msg = f"Expected pandas DataFrame, received {type(X)}"
             raise TypeError(msg)
-        if y is not None and not isinstance(y, (pd.DataFrame, pd.Series)):
+        if y is not None and not isinstance(y, (pd.DataFrame, pd.Series)):  # noqa: UP038
             msg = f"Expected pandas DataFrame or Series, received {type(X)}"
             raise TypeError(msg)
-        
+
     yield from stream.iter_frame(X, y, **kwargs)

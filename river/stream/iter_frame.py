@@ -36,7 +36,7 @@ def iter_frame(
     >>> X_pd, y_pd = pd.DataFrame(X_data), pd.Series(y_data)
     >>> X_pl, y_pl = pl.DataFrame(X_data), pl.Series(y_data)
     >>> X_pa, y_pa = pa.table(X_data), pa.chunked_array([y_data])
-    
+
     >>> for xi, yi in stream.iter_frame(X_pd, y_pd):
     ...     print(xi, yi)
     {'x1': 1, 'x2': 'blue'} True
@@ -48,7 +48,7 @@ def iter_frame(
     {'x1': 1, 'x2': 'blue'} True
     {'x1': 2, 'x2': 'yellow'} False
     {'x1': 3, 'x2': 'yellow'} False
-    
+
     >>> for xi, yi in stream.iter_frame(X_pa, y_pa):
     ...     print(xi, yi)
     {'x1': 1, 'x2': 'blue'} True

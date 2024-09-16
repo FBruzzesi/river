@@ -1,8 +1,14 @@
 from __future__ import annotations
 
-import pandas as pd
+from typing import TYPE_CHECKING
+from warnings import warn
+
+import narwhals.stable.v1 as nw  # type: ignore[import]
 
 from river import base, stream
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def iter_pandas(
@@ -40,9 +46,16 @@ def iter_pandas(
     {'x1': 4, 'x2': 'blue'} True
 
     """
+    msg = "Please use `stream.iter_frame`. `stream.iter_pandas` is deprecated, and it will be removed in future versions."
+    warn(msg, DeprecationWarning)
 
-    kwargs["feature_names"] = X.columns
-    if isinstance(y, pd.DataFrame):
-        kwargs["target_names"] = y.columns
+    if not nw.dependencies.is_pandas_dataframe(X):
+        msg = f"Expected pandas DataFrame, received {type(X)}"
+        raise TypeError(msg)
+    if y is not None and not (
+        nw.dependencies.is_pandas_dataframe(y) or nw.dependencies.is_pandas_series(y)
+    ):
+        msg = f"Expected pandas DataFrame or Series, received {type(y)}"
+        raise TypeError(msg)
 
-    yield from stream.iter_array(X=X.to_numpy(), y=y if y is None else y.to_numpy(), **kwargs)
+    yield from stream.iter_frame(X, y, **kwargs)

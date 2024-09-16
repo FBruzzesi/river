@@ -1,8 +1,14 @@
 from __future__ import annotations
 
-import polars as pl
+from typing import TYPE_CHECKING
+from warnings import warn
+
+import narwhals.stable.v1 as nw  # type: ignore[import]
 
 from river import base, stream
+
+if TYPE_CHECKING:
+    import polars as pl
 
 
 def iter_polars(
@@ -39,11 +45,17 @@ def iter_polars(
     {'x1': 2, 'x2': 'yellow'} False
     {'x1': 3, 'x2': 'yellow'} False
     {'x1': 4, 'x2': 'blue'} True
-
     """
+    msg = "Please use `stream.iter_frame`. `stream.iter_polars` is deprecated, and it will be removed in future versions."
+    warn(msg, DeprecationWarning)
 
-    kwargs["feature_names"] = X.columns
-    if isinstance(y, pl.DataFrame):
-        kwargs["target_names"] = y.columns
+    if not nw.dependencies.is_polars_dataframe(X):
+        msg = f"Expected polars DataFrame, received {type(X)}"
+        raise TypeError(msg)
+    if y is not None and not (
+        nw.dependencies.is_polars_dataframe(y) or nw.dependencies.is_polars_series(y)
+    ):
+        msg = f"Expected polars DataFrame or Series, received {type(y)}"
+        raise TypeError(msg)
 
-    yield from stream.iter_array(X=X.to_numpy(), y=y if y is None else y.to_numpy(), **kwargs)
+    yield from stream.iter_frame(X, y, **kwargs)

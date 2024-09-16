@@ -49,11 +49,11 @@ def iter_pandas(
     msg = "Please use `stream.iter_frame`. `stream.iter_pandas` is deprecated, and it will be removed in future versions."
     warn(msg, DeprecationWarning)
 
-    if not nw.depedencies.is_pandas_dataframe(X):
+    if not nw.dependencies.is_pandas_dataframe(X):
         msg = f"Expected pandas DataFrame, received {type(X)}"
         raise TypeError(msg)
     if y is not None and not (
-        nw.depedencies.is_pandas_dataframe(y) or nw.depedencies.is_pandas_series(y)
+        nw.dependencies.is_pandas_dataframe(y) or nw.dependencies.is_pandas_series(y)
     ):
         msg = f"Expected pandas DataFrame or Series, received {type(y)}"
         raise TypeError(msg)

@@ -27,6 +27,25 @@ def test_transform_many_requires_pandas(monkeypatch: pytest.MonkeyPatch) -> None
     assert len(out) == 3
 
 
+def test_one_hot_transform_many_does_not_require_pandas(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("polars")
+
+    import polars as pl
+
+    # `OneHotEncoder` keeps a pandas-only sparse fast path, but the non-pandas branch is routed
+    # through narwhals' `to_dummies` and must never import pandas (issues #1881 / #1805).
+    monkeypatch.setattr(pandas_utils, "import_pandas", _raise_missing_pandas)
+
+    frame = pl.DataFrame({"c": ["a", "b", "a"]})
+    encoder = preprocessing.OneHotEncoder(drop_zeros=True)
+
+    encoder.learn_many(frame)
+    out = encoder.transform_many(frame)
+
+    assert isinstance(out, pl.DataFrame)
+    assert out.sort("c_a").to_dict(as_series=False) == {"c_a": [0, 1, 1], "c_b": [1, 0, 0]}
+
+
 def test_predict_many_does_not_require_pandas(monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("polars")
 

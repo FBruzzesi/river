@@ -325,6 +325,9 @@
         <loc>https://riverml.xyz/dev/api/datasets/CreditCard/</loc>
       </url>
       <url>
+        <loc>https://riverml.xyz/dev/api/datasets/CriteoAds/</loc>
+      </url>
+      <url>
         <loc>https://riverml.xyz/dev/api/datasets/Elec2/</loc>
       </url>
       <url>
@@ -673,6 +676,9 @@
         <loc>https://riverml.xyz/dev/api/linear-model/ALMAClassifier/</loc>
       </url>
       <url>
+        <loc>https://riverml.xyz/dev/api/linear-model/AdPredictor/</loc>
+      </url>
+      <url>
         <loc>https://riverml.xyz/dev/api/linear-model/BayesianLinearRegression/</loc>
       </url>
       <url>
@@ -938,6 +944,9 @@
       </url>
       <url>
         <loc>https://riverml.xyz/dev/api/multioutput/MultiClassEncoder/</loc>
+      </url>
+      <url>
+        <loc>https://riverml.xyz/dev/api/multioutput/PerOutputRegressor/</loc>
       </url>
       <url>
         <loc>https://riverml.xyz/dev/api/multioutput/ProbabilisticClassifierChain/</loc>

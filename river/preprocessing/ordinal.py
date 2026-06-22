@@ -3,13 +3,13 @@ from __future__ import annotations
 import collections
 import typing
 
-import numpy as np
 import narwhals.stable.v2 as nw
+import numpy as np
 
 from river import base, utils
 
 if typing.TYPE_CHECKING:
-    from narwhals.stable.v2.typing import IntoDataFrame
+    from narwhals.stable.v2.typing import IntoDataFrame, IntoSeries
 
 
 class OrdinalEncoder(base.MiniBatchTransformer):
@@ -120,7 +120,7 @@ class OrdinalEncoder(base.MiniBatchTransformer):
         self.unknown_value = unknown_value
         self.none_value = none_value
         self.categories = categories
-        self.values: collections.defaultdict | dict | None = None
+        self.values: collections.defaultdict | dict
 
         if self.categories is None:
             # We're going to store the categories in a dict of dicts. The outer dict will map each
@@ -147,7 +147,7 @@ class OrdinalEncoder(base.MiniBatchTransformer):
         reserved values (``unknown_value`` and ``none_value``).
 
         """
-        code = len(self.values[feature])  # type: ignore[index]
+        code = len(self.values[feature])
         for reserved in self._reserved_category_codes:
             if reserved <= code:
                 code += 1
@@ -156,7 +156,7 @@ class OrdinalEncoder(base.MiniBatchTransformer):
     def _encode_value(self, feature: typing.Hashable, value):
         if value is None:
             return self.none_value
-        return self.values[feature].get(value, self.unknown_value)  # type: ignore[index]
+        return self.values[feature].get(value, self.unknown_value)
 
     def transform_one(self, x):
         return {i: self._encode_value(i, xi) for i, xi in x.items()}
@@ -180,13 +180,17 @@ class OrdinalEncoder(base.MiniBatchTransformer):
             }
         )
 
-    def learn_many(self, X: IntoDataFrame, y=None):
+    def learn_many(self, X: IntoDataFrame, y: IntoSeries | None = None) -> None:
         if self.categories is None:
             X_nw = utils.dataframe.into_frame(X)
             schema = X_nw.schema
             finite_masks = X_nw.select(
-                [~(nw.col(name).is_nan() | nw.col(name).is_null()) if dtype.is_numeric() else ~nw.col(name).is_null()
-                 for name, dtype in schema.items()]
+                [
+                    ~(nw.col(name).is_nan() | nw.col(name).is_null())
+                    if dtype.is_numeric()
+                    else ~nw.col(name).is_null()
+                    for name, dtype in schema.items()
+                ]
             )
             for col_name in schema.names():
                 for value in X_nw[col_name].filter(finite_masks[col_name]).unique():

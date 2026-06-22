@@ -6,12 +6,13 @@ import itertools
 import numbers
 import typing
 
+import narwhals.stable.v2 as nw
 import numpy as np
 
 from river import base, stats, utils
 
 if typing.TYPE_CHECKING:
-    import pandas as pd
+    from narwhals.stable.v2.typing import IntoDataFrame, IntoDataFrameT
 
 __all__ = [
     "AdaptiveStandardScaler",
@@ -299,7 +300,7 @@ class StandardScaler(base.MiniBatchTransformer):
             return result
         return {i: xi - means[i] for i, xi in x.items()}
 
-    def learn_many(self, X: pd.DataFrame):
+    def learn_many(self, X: IntoDataFrame) -> None:
         """Update with a mini-batch of features.
 
         Note that the update formulas for mean and variance are slightly different than in the
@@ -312,28 +313,37 @@ class StandardScaler(base.MiniBatchTransformer):
         X
             A dataframe where each column is a feature.
         """
+        X_nw = utils.dataframe.into_frame(X)
         if self.window_size is not None:
             # Row-by-row to preserve correct rolling-window semantics.
-            columns = X.columns
-            for row in X.values:
-                self.learn_one(dict(zip(columns, row)))
+            for row in X_nw.iter_rows(named=True):
+                self.learn_one(row)
             return
 
         # Operating on X.values, which is a view to the underlying numpy array, is slightly faster
         # than operating on X
-        columns = X.columns
-        X = X.values
+        columns = X_nw.columns
 
         # In the rest of this method, old_* refers to the existing statistics, whilst new_* refers
         # to the statistics of the current mini-batch.
 
-        new_means = np.nanmean(X, axis=0)
+        new_means = X_nw.select(nw.all().mean()).to_numpy().ravel()
+        new_counts = (
+            X_nw.select(
+                [
+                    (nw.col(col_name).is_finite() & ~nw.col(col_name).is_null()).sum()
+                    for col_name in columns
+                ]
+            )
+            .to_numpy()
+            .ravel()
+        )
         # We could call np.var, but we already have the mean so we can be smart
         if self.with_std:
-            new_vars = np.einsum("ij,ij->j", X, X) / len(X) - new_means**2
+            X_np = X_nw.to_numpy()
+            new_vars = np.einsum("ij,ij->j", X_np, X_np) / len(X_np) - new_means**2
         else:
             new_vars = []
-        new_counts = np.sum(~np.isnan(X), axis=0)
 
         for col, new_mean, new_var, new_count in itertools.zip_longest(
             columns, new_means, new_vars, new_counts
@@ -352,7 +362,7 @@ class StandardScaler(base.MiniBatchTransformer):
                 ).item()
             self.counts[col] += new_count.item()
 
-    def transform_many(self, X: pd.DataFrame):
+    def transform_many(self, X: IntoDataFrameT) -> IntoDataFrameT:
         """Scale a mini-batch of features.
 
         Parameters
@@ -362,30 +372,35 @@ class StandardScaler(base.MiniBatchTransformer):
             the features has not been seen during a previous call to `learn_many`.
 
         """
-        pd = utils.pandas.import_pandas()
-        # Determine dtype of input
-        dtypes = X.dtypes.unique()
-        dtype = dtypes[0] if len(dtypes) == 1 else np.float64
+        X_nw = utils.dataframe.into_frame(X)
+        columns = X_nw.columns
 
-        # Check if the dtype is integer type and convert to corresponding float type
-        if np.issubdtype(dtype, np.integer):
-            bytes_size = dtype.itemsize
-            dtype = np.dtype(f"float{bytes_size * 8}")  # type: ignore[operator]
-
-        if self.window_size is None:
-            means = np.array([self.means[c] for c in X.columns], dtype=dtype)
-        else:
-            means = np.array([self.means[c].get() for c in X.columns], dtype=dtype)
-        Xt = X.values - means
+        means = {
+            col_name: (
+                self.means[col_name] if self.window_size is None else self.means[col_name].get()
+            )
+            for col_name in columns
+        }
+        X_nw = X_nw.select([nw.col(col_name) - means[col_name] for col_name in columns])
 
         if self.with_std:
-            if self.window_size is None:
-                stds = np.array([self.vars[c] ** 0.5 for c in X.columns], dtype=dtype)
-            else:
-                stds = np.array([self.vars[c].get() ** 0.5 for c in X.columns], dtype=dtype)
-            np.divide(Xt, stds, where=stds > 0, out=Xt)
+            stds = {
+                col_name: (
+                    self.vars[col_name] if self.window_size is None else self.vars[col_name].get()
+                )
+                ** 0.5
+                for col_name in columns
+            }
+            X_nw = X_nw.select(
+                [
+                    nw.when(nw.lit(stds[col_name]) > 0)
+                    .then(nw.col(col_name) / stds[col_name])
+                    .otherwise(nw.col(col_name))
+                    for col_name in columns
+                ]
+            )
 
-        return pd.DataFrame(Xt, index=X.index, columns=X.columns, copy=False)
+        return X_nw.to_native()
 
 
 class MinMaxScaler(base.Transformer):

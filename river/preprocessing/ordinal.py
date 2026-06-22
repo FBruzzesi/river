@@ -4,11 +4,12 @@ import collections
 import typing
 
 import numpy as np
+import narwhals.stable.v2 as nw
 
 from river import base, utils
 
 if typing.TYPE_CHECKING:
-    pass
+    from narwhals.stable.v2.typing import IntoDataFrame
 
 
 class OrdinalEncoder(base.MiniBatchTransformer):
@@ -179,9 +180,15 @@ class OrdinalEncoder(base.MiniBatchTransformer):
             }
         )
 
-    def learn_many(self, X, y=None):
+    def learn_many(self, X: IntoDataFrame, y=None):
         if self.categories is None:
-            for i in X.columns:
-                for xi in X[i].dropna().unique():
-                    if xi not in self.values[i]:
-                        self.values[i][xi] = self._next_category_code(i)
+            X_nw = utils.dataframe.into_frame(X)
+            schema = X_nw.schema
+            finite_masks = X_nw.select(
+                [~(nw.col(name).is_nan() | nw.col(name).is_null()) if dtype.is_numeric() else ~nw.col(name).is_null()
+                 for name, dtype in schema.items()]
+            )
+            for col_name in schema.names():
+                for value in X_nw[col_name].filter(finite_masks[col_name]).unique():
+                    if value not in self.values[col_name]:
+                        self.values[col_name][value] = self._next_category_code(col_name)

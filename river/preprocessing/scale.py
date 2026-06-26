@@ -35,6 +35,48 @@ def safe_div(a, b):
     return a / b if b else 0.0
 
 
+# narwhals dtype -> representative numpy dtype, used only to recover the per-column precision
+# when a pandas[pyarrow] frame materialises as an `object` array (see `_output_float_dtype`).
+# Widths that have no numpy counterpart (e.g. Int128) and any unmapped dtype fall back to
+# float64, the widest float we promote to.
+_NW_TO_NUMPY: dict[type[nw.dtypes.DType], type[np.generic]] = {
+    nw.Int8: np.int8,
+    nw.Int16: np.int16,
+    nw.Int32: np.int32,
+    nw.Int64: np.int64,
+    nw.UInt8: np.uint8,
+    nw.UInt16: np.uint16,
+    nw.UInt32: np.uint32,
+    nw.UInt64: np.uint64,
+    nw.Float32: np.float32,
+    nw.Float64: np.float64,
+}
+
+
+def _output_float_dtype(array: np.ndarray, schema_dtypes: list[nw.dtypes.DType]) -> np.dtype:
+    """Pick the output float precision for a transformed mini-batch.
+
+    The result mirrors the legacy pandas path, whose output dtype came from ``X.values - means``
+    (numpy promotion against a float mean): ``np.result_type(values_dtype, np.float16)`` reproduces
+    it for every input (e.g. ``int16 -> float32``, ``int32``/``int64 -> float64``) while keeping
+    genuine ``float16`` inputs at ``float16`` (the legacy block dropped these to ``object`` in the
+    narwhals schema and so widened them to ``float64``) and never narrowing a float column. Because
+    `numpy.result_type` is associative, promoting the already-materialised (and thus already
+    cross-column-promoted) `array` dtype is equivalent to promoting every column, so a mixed batch
+    gets the narrowest float that fits all columns rather than an unconditional ``float64``.
+
+    A pandas[pyarrow] frame materialises as an ``object`` array, hiding the real widths; the
+    per-column dtypes are then recovered from the narwhals `schema_dtypes` instead.
+    """
+    if array.dtype.kind == "O":
+        col_dtypes: list[typing.Any] = [
+            _NW_TO_NUMPY.get(type(d), np.float64) for d in schema_dtypes
+        ]
+    else:
+        col_dtypes = [array.dtype]
+    return np.result_type(*col_dtypes, np.float16)
+
+
 class Binarizer(base.Transformer):
     """Binarize the data to 0 or 1 according to a threshold.
 
@@ -366,20 +408,12 @@ class StandardScaler(base.MiniBatchTransformer):
         X_nw = utils.dataframe.into_frame(X)
         columns = X_nw.columns
 
-        # Derive the output float precision from the narwhals schema rather than from the
-        # materialised array, whose dtype collapses to `object` for a pyarrow-backed frame.
-        # Mirror the legacy pandas promotion: floats keep their width, a homogeneous narrow
-        # integer batch that fits in single precision (<= 16-bit) stays float32, while wider
-        # integers and mixed batches use float64. `astype(copy=True)` both coerces
-        # (object -> float) and yields a writable buffer for the in-place arithmetic below.
-        dtypes = X_nw.schema.dtypes()
-        fits_float32 = (
-            bool(dtypes)
-            and all(d == dtypes[0] for d in dtypes)
-            and dtypes[0] in (nw.Float32(), nw.Int8(), nw.Int16(), nw.UInt8(), nw.UInt16())
-        )
-        dtype: np.dtype = np.dtype(np.float32) if fits_float32 else np.dtype(np.float64)
-        Xt = X_nw.to_numpy().astype(dtype, copy=True)
+        # Derive the output float precision from the materialised array (see
+        # `_output_float_dtype`). `astype(copy=True)` both coerces (object -> float) and yields a
+        # writable buffer for the in-place arithmetic below.
+        Xt = X_nw.to_numpy()
+        dtype = _output_float_dtype(Xt, X_nw.schema.dtypes())
+        Xt = Xt.astype(dtype, copy=True)
 
         if self.window_size is None:
             means = np.array([self.means[c] for c in columns], dtype=dtype)

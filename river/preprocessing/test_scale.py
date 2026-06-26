@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 
 from river import datasets, preprocessing, stats, stream, utils
-from river.conftest import FRAME_BACKENDS
 
 if typing.TYPE_CHECKING:
     from river.conftest import FrameBackend
@@ -511,8 +510,8 @@ def test_maxabs_scaler_unpickle_missing_window_size():
     assert legacy.transform_one({"x": 4.0}) == {"x": 1.0}
 
 
-# `StandardScaler.learn_many`/`transform_many` are routed through narwhals; these tests pin
-# cross-backend parity of the learned statistics, the scaled output, and the native return type.
+# `StandardScaler.learn_many`/`transform_many` route through narwhals; these tests pin
+# cross-backend parity against the pandas reference, the native return type, and output precision.
 
 
 def _numeric_batch() -> dict[str, list[float]]:
@@ -523,12 +522,13 @@ def _numeric_batch() -> dict[str, list[float]]:
     }
 
 
-def test_standard_scaler_learn_many_backend_agnostic(frame_backend: FrameBackend) -> None:
-    """Learned statistics match the pandas reference regardless of the input backend."""
+def test_standard_scaler_mini_batch_matches_pandas(frame_backend: FrameBackend) -> None:
+    """Learned statistics and scaled output match the pandas reference on every backend."""
     data = _numeric_batch()
 
     reference = preprocessing.StandardScaler()
-    reference.learn_many(FRAME_BACKENDS["pandas"]().frame(data))
+    reference.learn_many(pd.DataFrame(data))
+    expected = reference.transform_many(pd.DataFrame(data)).to_numpy()
 
     scaler = preprocessing.StandardScaler()
     scaler.learn_many(frame_backend.frame(data))
@@ -538,37 +538,78 @@ def test_standard_scaler_learn_many_backend_agnostic(frame_backend: FrameBackend
         assert math.isclose(scaler.means[col], reference.means[col], abs_tol=1e-9)
         assert math.isclose(scaler.vars[col], reference.vars[col], abs_tol=1e-9)
 
-
-def test_standard_scaler_transform_many_backend_agnostic(frame_backend: FrameBackend) -> None:
-    """Scaled values match the pandas reference regardless of the input backend."""
-    data = _numeric_batch()
-
-    reference = preprocessing.StandardScaler()
-    reference.learn_many(FRAME_BACKENDS["pandas"]().frame(data))
-    expected = nw.from_native(
-        reference.transform_many(FRAME_BACKENDS["pandas"]().frame(data)), eager_only=True
-    ).to_numpy()
-
-    scaler = preprocessing.StandardScaler()
-    scaler.learn_many(frame_backend.frame(data))
-    got = nw.from_native(
-        scaler.transform_many(frame_backend.frame(data)), eager_only=True
-    ).to_numpy()
-
-    np.testing.assert_allclose(np.asarray(got, dtype=float), expected, atol=1e-9)
+    got = nw.from_native(scaler.transform_many(frame_backend.frame(data)), eager_only=True)
+    np.testing.assert_allclose(np.asarray(got.to_numpy(), dtype=float), expected, atol=1e-9)
 
 
-def test_standard_scaler_transform_many_returns_native_backend(
-    frame_backend: FrameBackend,
-) -> None:
+def test_standard_scaler_transform_many_returns_native_backend(frame_backend: FrameBackend) -> None:
     """`transform_many` returns the input backend's native frame type."""
-    data = _numeric_batch()
-
     scaler = preprocessing.StandardScaler()
-    scaler.learn_many(frame_backend.frame(data))
-    out = scaler.transform_many(frame_backend.frame(data))
+    X = frame_backend.frame(_numeric_batch())
+    scaler.learn_many(X)
 
-    assert type(out).__module__.split(".")[0] == frame_backend.name.split("[")[0]
+    assert type(scaler.transform_many(X)) is type(X)
+
+
+def test_standard_scaler_transform_many_output_dtype(frame_backend: FrameBackend) -> None:
+    """Output dtype matches the legacy (pre-narwhals) pandas promotion on every backend.
+
+    The legacy output dtype came from ``X.values - means``; this is reproduced by
+    ``np.result_type(values_dtype, np.float16)``. Floats pass through, integers promote the way
+    numpy did (``int16 -> float32``, ``int32``/``int64`` -> ``float64``), and a mixed batch gets
+    the narrowest float that fits every column (e.g. ``float32`` + ``int16`` -> ``float32``)
+    instead of an unconditional ``float64``.
+    """
+    # Integer-valued so the float -> integer casts below are lossless (pyarrow rejects truncation).
+    base = nw.from_native(
+        frame_backend.frame({"x": [1.0, 2.0, 3.0, 4.0], "y": [10.0, 20.0, 30.0, 40.0]}),
+        eager_only=True,
+    )
+
+    homogeneous: list[tuple[nw.dtypes.DType, nw.dtypes.DType]] = [
+        (nw.Float32(), nw.Float32()),
+        (nw.Float64(), nw.Float64()),
+        (nw.Int16(), nw.Float32()),
+        (nw.Int32(), nw.Float64()),
+        (nw.Int64(), nw.Float64()),
+    ]
+    for cast_to, expected in homogeneous:
+        native = base.with_columns(nw.all().cast(cast_to)).to_native()
+        scaler = preprocessing.StandardScaler()
+        scaler.learn_many(native)
+        out = nw.from_native(scaler.transform_many(native), eager_only=True)
+        assert all(dtype == expected for dtype in out.schema.dtypes()), (cast_to, expected)
+
+    # Mixed dtypes that cannot share a narrower float fall back to float64.
+    mixed = base.with_columns(
+        nw.col("x").cast(nw.Int32()), nw.col("y").cast(nw.Float64())
+    ).to_native()
+    scaler = preprocessing.StandardScaler()
+    scaler.learn_many(mixed)
+    out = nw.from_native(scaler.transform_many(mixed), eager_only=True)
+    assert all(dtype == nw.Float64() for dtype in out.schema.dtypes())
+
+    # Mixed dtypes that all fit a narrower float are no longer widened to float64.
+    narrow_mixed = base.with_columns(
+        nw.col("x").cast(nw.Float32()), nw.col("y").cast(nw.Int16())
+    ).to_native()
+    scaler = preprocessing.StandardScaler()
+    scaler.learn_many(narrow_mixed)
+    out = nw.from_native(scaler.transform_many(narrow_mixed), eager_only=True)
+    assert all(dtype == nw.Float32() for dtype in out.schema.dtypes())
+
+
+def test_standard_scaler_transform_many_preserves_float16() -> None:
+    """A float16 batch stays float16 (the schema-only logic used to widen it to float64).
+
+    Narwhals reports a pandas float16 column as ``Unknown``, so this is pinned on pandas only:
+    polars has no float16, and casting through the narwhals schema cannot express it.
+    """
+    X = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0], "y": [10.0, 20.0, 30.0, 40.0]}, dtype="float16")
+    scaler = preprocessing.StandardScaler()
+    scaler.learn_many(X)
+    out = scaler.transform_many(X)
+    assert (out.dtypes == np.float16).all()
 
 
 def test_issue_1313():

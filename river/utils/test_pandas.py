@@ -10,11 +10,19 @@ def _raise_missing_pandas() -> None:
     raise ImportError("`pandas` is required for this operation.")
 
 
-def test_transform_many_requires_pandas(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_transform_many_does_not_require_pandas(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `preprocessing.StandardScaler` mini-batching is routed through narwhals, so
+    # `learn_many`/`transform_many` must work on a non-pandas backend even when pandas is
+    # unavailable (see issues #1881 / #1805).
     monkeypatch.setattr(pandas_utils, "import_pandas", _raise_missing_pandas)
+    pl = pytest.importorskip("polars")
 
-    with pytest.raises(ImportError, match="pandas"):
-        preprocessing.StandardScaler().transform_many(object())
+    scaler = preprocessing.StandardScaler()
+    scaler.learn_many(pl.DataFrame({"a": [1.0, 2.0, 3.0]}))
+    out = scaler.transform_many(pl.DataFrame({"a": [1.0, 2.0, 3.0]}))
+
+    assert isinstance(out, pl.DataFrame)
+    assert len(out) == 3
 
 
 def test_predict_many_does_not_require_pandas(monkeypatch: pytest.MonkeyPatch) -> None:

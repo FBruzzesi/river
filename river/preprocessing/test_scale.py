@@ -3,11 +3,17 @@ from __future__ import annotations
 import math
 import pickle
 import random
+import typing
 
+import narwhals.stable.v2 as nw
 import numpy as np
 import pandas as pd
 
 from river import datasets, preprocessing, stats, stream, utils
+from river.conftest import FRAME_BACKENDS
+
+if typing.TYPE_CHECKING:
+    from river.conftest import FrameBackend
 
 
 def _pd_split(df, n):
@@ -503,6 +509,66 @@ def test_maxabs_scaler_unpickle_missing_window_size():
     assert legacy.window_size is None
     legacy.learn_one({"x": 4.0})
     assert legacy.transform_one({"x": 4.0}) == {"x": 1.0}
+
+
+# `StandardScaler.learn_many`/`transform_many` are routed through narwhals; these tests pin
+# cross-backend parity of the learned statistics, the scaled output, and the native return type.
+
+
+def _numeric_batch() -> dict[str, list[float]]:
+    rng = random.Random(42)
+    return {
+        "x": [rng.uniform(-10, 10) for _ in range(50)],
+        "y": [rng.uniform(0, 100) for _ in range(50)],
+    }
+
+
+def test_standard_scaler_learn_many_backend_agnostic(frame_backend: FrameBackend) -> None:
+    """Learned statistics match the pandas reference regardless of the input backend."""
+    data = _numeric_batch()
+
+    reference = preprocessing.StandardScaler()
+    reference.learn_many(FRAME_BACKENDS["pandas"]().frame(data))
+
+    scaler = preprocessing.StandardScaler()
+    scaler.learn_many(frame_backend.frame(data))
+
+    for col in data:
+        assert scaler.counts[col] == reference.counts[col]
+        assert math.isclose(scaler.means[col], reference.means[col], abs_tol=1e-9)
+        assert math.isclose(scaler.vars[col], reference.vars[col], abs_tol=1e-9)
+
+
+def test_standard_scaler_transform_many_backend_agnostic(frame_backend: FrameBackend) -> None:
+    """Scaled values match the pandas reference regardless of the input backend."""
+    data = _numeric_batch()
+
+    reference = preprocessing.StandardScaler()
+    reference.learn_many(FRAME_BACKENDS["pandas"]().frame(data))
+    expected = nw.from_native(
+        reference.transform_many(FRAME_BACKENDS["pandas"]().frame(data)), eager_only=True
+    ).to_numpy()
+
+    scaler = preprocessing.StandardScaler()
+    scaler.learn_many(frame_backend.frame(data))
+    got = nw.from_native(
+        scaler.transform_many(frame_backend.frame(data)), eager_only=True
+    ).to_numpy()
+
+    np.testing.assert_allclose(np.asarray(got, dtype=float), expected, atol=1e-9)
+
+
+def test_standard_scaler_transform_many_returns_native_backend(
+    frame_backend: FrameBackend,
+) -> None:
+    """`transform_many` returns the input backend's native frame type."""
+    data = _numeric_batch()
+
+    scaler = preprocessing.StandardScaler()
+    scaler.learn_many(frame_backend.frame(data))
+    out = scaler.transform_many(frame_backend.frame(data))
+
+    assert type(out).__module__.split(".")[0] == frame_backend.name.split("[")[0]
 
 
 def test_issue_1313():

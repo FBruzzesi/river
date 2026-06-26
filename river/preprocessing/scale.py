@@ -6,12 +6,13 @@ import itertools
 import numbers
 import typing
 
+import narwhals.stable.v2 as nw
 import numpy as np
 
 from river import base, stats, utils
 
 if typing.TYPE_CHECKING:
-    import pandas as pd
+    from narwhals.stable.v2.typing import IntoDataFrame, IntoDataFrameT
 
 __all__ = [
     "AdaptiveStandardScaler",
@@ -299,7 +300,7 @@ class StandardScaler(base.MiniBatchTransformer):
             return result
         return {i: xi - means[i] for i, xi in x.items()}
 
-    def learn_many(self, X: pd.DataFrame):
+    def learn_many(self, X: IntoDataFrame) -> None:
         """Update with a mini-batch of features.
 
         Note that the update formulas for mean and variance are slightly different than in the
@@ -312,31 +313,31 @@ class StandardScaler(base.MiniBatchTransformer):
         X
             A dataframe where each column is a feature.
         """
+        X_nw = utils.dataframe.into_frame(X)
         if self.window_size is not None:
             # Row-by-row to preserve correct rolling-window semantics.
-            columns = X.columns
-            for row in X.values:
-                self.learn_one(dict(zip(columns, row)))
+            for row in X_nw.iter_rows(named=True):
+                self.learn_one(row)
             return
 
-        # Operating on X.values, which is a view to the underlying numpy array, is slightly faster
-        # than operating on X
-        columns = X.columns
-        X = X.values
+        # Move to a float64 numpy core at the boundary (nulls become NaN, pyarrow object arrays
+        # are coerced) so the statistics below stay backend-agnostic and as fast as the legacy
+        # pandas path. Only the input wrapping and output rebuild are backend-aware.
+        X_np = utils.dataframe.to_numpy(X_nw)
 
         # In the rest of this method, old_* refers to the existing statistics, whilst new_* refers
         # to the statistics of the current mini-batch.
 
-        new_means = np.nanmean(X, axis=0)
+        new_means = np.nanmean(X_np, axis=0)
         # We could call np.var, but we already have the mean so we can be smart
         if self.with_std:
-            new_vars = np.einsum("ij,ij->j", X, X) / len(X) - new_means**2
+            new_vars = np.einsum("ij,ij->j", X_np, X_np) / len(X_np) - new_means**2
         else:
             new_vars = []
-        new_counts = np.sum(~np.isnan(X), axis=0)
+        new_counts = np.sum(~np.isnan(X_np), axis=0)
 
         for col, new_mean, new_var, new_count in itertools.zip_longest(
-            columns, new_means, new_vars, new_counts
+            X_nw.columns, new_means, new_vars, new_counts
         ):
             old_mean = self.means[col]
             old_var = self.vars[col]
@@ -352,7 +353,7 @@ class StandardScaler(base.MiniBatchTransformer):
                 ).item()
             self.counts[col] += new_count.item()
 
-    def transform_many(self, X: pd.DataFrame):
+    def transform_many(self, X: IntoDataFrameT) -> IntoDataFrameT:
         """Scale a mini-batch of features.
 
         Parameters
@@ -362,30 +363,41 @@ class StandardScaler(base.MiniBatchTransformer):
             the features has not been seen during a previous call to `learn_many`.
 
         """
-        pd = utils.pandas.import_pandas()
-        # Determine dtype of input
-        dtypes = X.dtypes.unique()
-        dtype = dtypes[0] if len(dtypes) == 1 else np.float64
+        X_nw = utils.dataframe.into_frame(X)
+        columns = X_nw.columns
 
-        # Check if the dtype is integer type and convert to corresponding float type
-        if np.issubdtype(dtype, np.integer):
-            bytes_size = dtype.itemsize
-            dtype = np.dtype(f"float{bytes_size * 8}")  # type: ignore[operator]
+        # Derive the output float precision from the narwhals schema rather than from the
+        # materialised array, whose dtype collapses to `object` for a pyarrow-backed frame.
+        # Mirror the legacy pandas promotion: floats keep their width, a homogeneous narrow
+        # integer batch that fits in single precision (<= 16-bit) stays float32, while wider
+        # integers and mixed batches use float64. `astype(copy=True)` both coerces
+        # (object -> float) and yields a writable buffer for the in-place arithmetic below.
+        dtypes = X_nw.schema.dtypes()
+        fits_float32 = (
+            bool(dtypes)
+            and all(d == dtypes[0] for d in dtypes)
+            and dtypes[0] in (nw.Float32(), nw.Int8(), nw.Int16(), nw.UInt8(), nw.UInt16())
+        )
+        dtype: np.dtype = np.dtype(np.float32) if fits_float32 else np.dtype(np.float64)
+        Xt = X_nw.to_numpy().astype(dtype, copy=True)
 
         if self.window_size is None:
-            means = np.array([self.means[c] for c in X.columns], dtype=dtype)
+            means = np.array([self.means[c] for c in columns], dtype=dtype)
         else:
-            means = np.array([self.means[c].get() for c in X.columns], dtype=dtype)
-        Xt = X.values - means
+            means = np.array([self.means[c].get() for c in columns], dtype=dtype)
+        Xt -= means
 
         if self.with_std:
             if self.window_size is None:
-                stds = np.array([self.vars[c] ** 0.5 for c in X.columns], dtype=dtype)
+                stds = np.array([self.vars[c] ** 0.5 for c in columns], dtype=dtype)
             else:
-                stds = np.array([self.vars[c].get() ** 0.5 for c in X.columns], dtype=dtype)
+                stds = np.array([self.vars[c].get() ** 0.5 for c in columns], dtype=dtype)
             np.divide(Xt, stds, where=stds > 0, out=Xt)
 
-        return pd.DataFrame(Xt, index=X.index, columns=X.columns, copy=False)
+        return typing.cast(
+            "IntoDataFrameT",
+            utils.dataframe.to_native_frame(Xt, like=X_nw, columns=columns),
+        )
 
 
 class MinMaxScaler(base.Transformer):
